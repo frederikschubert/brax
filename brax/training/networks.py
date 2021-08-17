@@ -28,6 +28,32 @@ class FeedForwardModel:
   init: Any
   apply: Any
 
+class QuantileMLP(linen.Module):
+  layer_sizes: Sequence[int]
+  activation: Callable[[jnp.ndarray], jnp.ndarray] = linen.relu
+  kernel_init: Callable[..., Any] = jax.nn.initializers.lecun_uniform()
+  activate_final: bool = False
+  bias: bool = True
+  num_quantiles: int = 32
+
+  @linen.compact
+  def __call__(self, data: jnp.ndarray, quantiles: jnp.ndarray):
+    hidden = data
+    quantile_cos_embs = jnp.cos(quantiles[..., None] * jnp.arange(1, 1 + self.num_quantiles) * jnp.pi)
+    quantile_embs = linen.Dense(self.layer_sizes[-2], name=f'quantile_embs', kernel_init=self.kernel_init, use_bias=self.bias)(quantile_cos_embs)
+    for i, hidden_size in enumerate(self.layer_sizes):
+      hidden = linen.Dense(
+          hidden_size,
+          name=f'hidden_{i}',
+          kernel_init=self.kernel_init,
+          use_bias=self.bias)(hidden)
+      if i != len(self.layer_sizes) - 1 or self.activate_final:
+        hidden = self.activation(hidden)
+      if i == len(self.layer_sizes) - 3:
+        hidden = quantile_embs * hidden[..., None, :]
+
+    return hidden
+
 
 class MLP(linen.Module):
   """MLP module."""
